@@ -1,0 +1,28 @@
+version: "3"
+
+services:
+  payments:
+    build:
+      context: ..
+      dockerfile: ./docker/payments/Dockerfile
+
+    image: payments:v0
+    container_name: payments
+
+    depends_on: [postgres, redis]
+    networks: [backend, default]
+
+  postgres:
+    image: postgres
+    environment:
+      POSTGRES_DB: "testdb"
+
+
+    networks: [backend]
+
+  redis:
+    image: redis
+    networks: [backend]
+
+networks:
+  backend:
