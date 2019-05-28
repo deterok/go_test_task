@@ -43,13 +43,6 @@ func NewAccountsRepository(db *gorm.DB) AccountsRepository {
 	return &accountsRepository{db}
 }
 
-func (r *accountsRepository) Init() error {
-	if err := r.db.AutoMigrate(&Account{}).Error; err != nil {
-		return errors.Wrap(err, "migration failed")
-	}
-	return nil
-}
-
 func (r *accountsRepository) Create(ctx context.Context, a *Account) (*Account, error) {
 	if err := r.db.Create(&a).Error; err != nil {
 		return nil, err
