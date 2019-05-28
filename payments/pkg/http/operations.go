@@ -16,7 +16,7 @@ import (
 // makeMakeDepositHandler creates the handler logic
 func makeMakeDepositHandler(m *mux.Router, endpoints endpoint.Endpoints, options []kithttp.ServerOption) {
 	handler := kithttp.NewServer(endpoints.MakeDepositEndpoint, decodeMakeDepositRequest, encodeMakeDepositResponse, options...)
-	m.Methods("POST").Path("/operations/Deposit").Handler(handler)
+	m.Methods("POST").Path("/operations/deposit").Handler(handler)
 }
 
 // decodeMakeDepositRequest is a transport/http.DecodeRequestFunc that decodes a

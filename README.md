@@ -113,7 +113,7 @@ Response:
 Request:
 ```shell
 curl --request POST \
-  --url http://localhost:8800/operations/deposite \
+  --url http://localhost:8800/operations/deposit \
   --header 'Accept: */*' \
   --header 'Cache-Control: no-cache' \
   --header 'Connection: keep-alive' \

@@ -4,7 +4,6 @@ import (
 	"context"
 	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/shopspring/decimal"
@@ -28,21 +27,21 @@ type PaymentsService interface {
 // ─── INTERFACE REALIZATION ──────────────────────────────────────────────────────
 
 type basicPaymentsService struct {
-	lock LockRepository
-	uow  UOWPaymentsFactory
+	lockf LockFactory
+	uowf  UOWPaymentsFactory
 }
 
 // NewBasicPaymentsService returns a naive implementation of PaymentsService.
-func NewBasicPaymentsService(lock LockRepository, uow UOWPaymentsFactory) PaymentsService {
+func NewBasicPaymentsService(lockf LockFactory, uowf UOWPaymentsFactory) PaymentsService {
 	return &basicPaymentsService{
-		lock: lock,
-		uow:  uow,
+		lockf: lockf,
+		uowf:  uowf,
 	}
 }
 
 // CreateAccount creates new account
 func (s *basicPaymentsService) CreateAccount(ctx context.Context, name, currency string) (*Account, error) {
-	uow, err := s.uow.Make()
+	uow, err := s.uowf.Make()
 	if err != nil {
 		return nil, errors.Wrap(err, "uow context createing failed")
 	}
@@ -61,9 +60,9 @@ func (s *basicPaymentsService) CreateAccount(ctx context.Context, name, currency
 	return a, nil
 }
 
-// GetAccount returns prepared account by id
+// GetAccount returns created account by id
 func (s *basicPaymentsService) GetAccount(ctx context.Context, id int64) (*Account, error) {
-	uow, err := s.uow.Make()
+	uow, err := s.uowf.Make()
 	if err != nil {
 		return nil, errors.Wrap(err, "uow context createing failed")
 	}
@@ -79,7 +78,7 @@ func (s *basicPaymentsService) GetAccount(ctx context.Context, id int64) (*Accou
 
 // GetAccounts returns all accounts in the system
 func (s *basicPaymentsService) GetAccounts(ctx context.Context) ([]*Account, error) {
-	uow, err := s.uow.Make()
+	uow, err := s.uowf.Make()
 	if err != nil {
 		return nil, errors.Wrap(err, "uow context createing failed")
 	}
@@ -95,7 +94,7 @@ func (s *basicPaymentsService) GetAccounts(ctx context.Context) ([]*Account, err
 
 // GetAccountOperations returns operations list of the account
 func (s *basicPaymentsService) GetAccountOperations(ctx context.Context, accID int64) ([]*Operation, error) {
-	uow, err := s.uow.Make()
+	uow, err := s.uowf.Make()
 	if err != nil {
 		return nil, errors.Wrap(err, "uow context createing failed")
 	}
@@ -111,13 +110,13 @@ func (s *basicPaymentsService) GetAccountOperations(ctx context.Context, accID i
 
 // MakeDeposit creates new deposit operation for the account
 func (s *basicPaymentsService) MakeDeposit(ctx context.Context, to int64, currency string, amount decimal.Decimal) (*Operation, error) {
-	key := s.getMutexKey(to)
-	if err := s.lock.Lock(key); err != nil {
-		return nil, errors.Wrapf(err, "mutex (%s) locking failed", key)
+	lock := s.getLock(to)
+	if err := lock.Lock(); err != nil {
+		return nil, errors.Wrapf(err, "mutex (%d) locking failed", to)
 	}
-	defer s.lock.Unlock(key)
+	defer lock.Unlock()
 
-	uow, err := s.uow.Make()
+	uow, err := s.uowf.Make()
 	if err != nil {
 		return nil, errors.Wrap(err, "uow context createing failed")
 	}
@@ -161,7 +160,7 @@ func (s *basicPaymentsService) MakeDeposit(ctx context.Context, to int64, curren
 
 // MakeTransfer creates new transfer operation for the pair of accounts
 func (s *basicPaymentsService) MakeTransfer(ctx context.Context, from int64, to int64, currency string, amount decimal.Decimal) (*Operation, error) {
-	uow, err := s.uow.Make()
+	uow, err := s.uowf.Make()
 	if err != nil {
 		return nil, errors.Wrap(err, "uow context createing failed")
 	}
@@ -217,20 +216,33 @@ func (s *basicPaymentsService) MakeTransfer(ctx context.Context, from int64, to 
 }
 
 // ─── HELPER METHODS ─────────────────────────────────────────────────────────────
-func (s *basicPaymentsService) getMutexKey(ids ...int64) string {
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
-	strIDs := make([]string, len(ids))
-	for i, id := range ids {
+// getLocksKeys sorts account ids and converts them to string
+func (s *basicPaymentsService) getLocksKeys(accIDs ...int64) []string {
+	sort.Slice(accIDs, func(i, j int) bool { return accIDs[i] < accIDs[j] })
+
+	strIDs := make([]string, len(accIDs))
+	for i, id := range accIDs {
 		strIDs[i] = strconv.FormatInt(id, 10)
 	}
 
-	return strings.Join(strIDs, ":")
+	return strIDs
+}
+
+func (s *basicPaymentsService) getLock(accIDs ...int64) Lock {
+	keys := s.getLocksKeys(accIDs...)
+	locks := make([]Lock, len(keys))
+
+	for i, key := range keys {
+		locks[i] = s.lockf.Make(key)
+	}
+
+	return NewLockPool(locks)
 }
 
 // New returns a PaymentsService with all of the expected middleware wired in.
-func New(lock LockRepository, uowFactory UOWPaymentsFactory, middleware []Middleware) PaymentsService {
-	var svc PaymentsService = NewBasicPaymentsService(lock, uowFactory)
+func New(lockf LockFactory, uowf UOWPaymentsFactory, middleware []Middleware) PaymentsService {
+	var svc PaymentsService = NewBasicPaymentsService(lockf, uowf)
 	for _, m := range middleware {
 		svc = m(svc)
 	}

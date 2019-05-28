@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gomodule/redigo/redis"
+	"github.com/jinzhu/gorm"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
-
-	"github.com/jinzhu/gorm"
 )
 
 //
@@ -186,6 +186,7 @@ func (dummyUOWFactory) Make() (UOWPayments, error) {
 }
 
 // ─── UTILS ──────────────────────────────────────────────────────────────────────
+
 func getDB() *gorm.DB {
 	db, err := gorm.Open("postgres", "host=postgres dbname=testdb sslmode=disable user=postgres")
 	if err != nil {
@@ -200,6 +201,22 @@ func getDB() *gorm.DB {
 	db.Exec("DELETE FROM transactions;")
 
 	return db
+}
+
+func getRedis() *redis.Pool {
+	pool := &redis.Pool{
+		MaxIdle:     1,
+		IdleTimeout: 5 * time.Second,
+		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", "redis:6379") },
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			_, err := c.Do("PING")
+			return err
+		},
+	}
+
+	pool.Get().Do("FLUSHALL")
+
+	return pool
 }
 
 //
@@ -234,9 +251,13 @@ func Test_basicPaymentsService_CreateAccount(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			db := getDB()
 			defer db.Close()
+
+			redis := getRedis()
+			defer redis.Close()
+
 			s := &basicPaymentsService{
-				lock: &dummyLock{},
-				uow:  NewUOWPaymentsFactory(db),
+				lockf: NewLockFactory(redis),
+				uowf:  NewUOWPaymentsFactory(db),
 			}
 
 			got, err := s.CreateAccount(tt.args.ctx, tt.args.name, tt.args.currency)
@@ -294,6 +315,9 @@ func Test_basicPaymentsService_GetAccount(t *testing.T) {
 			db := getDB()
 			defer db.Close()
 
+			redis := getRedis()
+			defer redis.Close()
+
 			err := db.Save(&Account{
 				ID:       1,
 				Name:     "test",
@@ -313,8 +337,8 @@ func Test_basicPaymentsService_GetAccount(t *testing.T) {
 			// End of initing fixtures
 
 			s := &basicPaymentsService{
-				lock: &dummyLock{},
-				uow:  NewUOWPaymentsFactory(db),
+				lockf: NewLockFactory(redis),
+				uowf:  NewUOWPaymentsFactory(db),
 			}
 
 			got, err := s.GetAccount(tt.args.ctx, tt.args.id)
@@ -359,6 +383,9 @@ func Test_basicPaymentsService_GetAccounts(t *testing.T) {
 			db := getDB()
 			defer db.Close()
 
+			redis := getRedis()
+			defer redis.Close()
+
 			// Init fixtures
 			for _, a := range tt.want {
 				err := db.Save(&Account{
@@ -371,8 +398,8 @@ func Test_basicPaymentsService_GetAccounts(t *testing.T) {
 			}
 
 			s := &basicPaymentsService{
-				lock: &dummyLock{},
-				uow:  NewUOWPaymentsFactory(db),
+				lockf: NewLockFactory(redis),
+				uowf:  NewUOWPaymentsFactory(db),
 			}
 
 			got, err := s.GetAccounts(tt.args.ctx)
@@ -440,6 +467,9 @@ func Test_basicPaymentsService_MakeTransfer(t *testing.T) {
 			db := getDB()
 			defer db.Close()
 
+			redis := getRedis()
+			defer redis.Close()
+
 			// Init fixtures
 			for _, a := range tt.want {
 				err := db.Save(&Account{
@@ -453,8 +483,8 @@ func Test_basicPaymentsService_MakeTransfer(t *testing.T) {
 			}
 
 			s := &basicPaymentsService{
-				lock: &dummyLock{},
-				uow:  NewUOWPaymentsFactory(db),
+				lockf: NewLockFactory(redis),
+				uowf:  NewUOWPaymentsFactory(db),
 			}
 
 			_, err := tt.action(s)

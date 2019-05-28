@@ -1,48 +1,89 @@
 package service
 
 import (
-	"time"
-
 	"github.com/gomodule/redigo/redis"
 	"github.com/pkg/errors"
 	redsync "gopkg.in/redsync.v1"
 )
 
-// LockRepository provides interface for simple distributed mechanism for restricting access to the same object
-type LockRepository interface {
-	Lock(key string) error
-	Unlock(key string) error
+// Lock provides interface for simple distributed mechanism for restricting access to the same object
+type Lock interface {
+	Lock() error
+	Unlock() error
 }
 
-type lockRepository struct {
-	sync *redsync.Redsync
+type LockFactory interface {
+	Make(key string) Lock
 }
 
-// NewLockReposytory resturns mechanism for restricting access using redis
-func NewLockReposytory(redisAddr string) LockRepository {
-	pool := &redis.Pool{
-		MaxIdle:     1,
-		IdleTimeout: 5 * time.Second,
-		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", redisAddr) },
-		TestOnBorrow: func(c redis.Conn, t time.Time) error {
-			_, err := c.Do("PING")
-			return err
-		},
+// ─── LOCK IMPLEMENTATION ────────────────────────────────────────────────────────
+
+type lock struct {
+	m *redsync.Mutex
+}
+
+func NewLock(m *redsync.Mutex) Lock {
+	return &lock{m}
+}
+
+func (l *lock) Lock() error {
+	if err := l.m.Lock(); err != nil {
+		return errors.Wrap(err, "mutex locking failed")
 	}
-	sync := redsync.New([]redsync.Pool{pool})
 
-	return &lockRepository{sync}
+	return nil
 }
 
-func (l *lockRepository) Lock(key string) error {
-	lock := l.sync.NewMutex(key)
-	return errors.Wrap(lock.Lock(), "mutex locking failed")
-}
-
-func (l *lockRepository) Unlock(key string) error {
-	lock := l.sync.NewMutex(key)
-	if !lock.Unlock() {
+func (l *lock) Unlock() error {
+	if !l.m.Unlock() {
 		return errors.New("mutex releasing failed")
 	}
+
 	return nil
+}
+
+// ─── LOCK POOL IMPLEMENTATION ───────────────────────────────────────────────────
+
+type lockPool struct {
+	locks []Lock
+}
+
+func NewLockPool(locks []Lock) Lock {
+	return &lockPool{locks}
+}
+
+func (p *lockPool) Lock() error {
+	for _, l := range p.locks {
+		if err := l.Lock(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p *lockPool) Unlock() error {
+	for _, l := range p.locks {
+		if err := l.Unlock(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ─── LOCK FACTORY IMPLEMENTATION ────────────────────────────────────────────────
+
+type lockFactory struct {
+	s *redsync.Redsync
+}
+
+func NewLockFactory(pool *redis.Pool) LockFactory {
+	return &lockFactory{
+		s: redsync.New([]redsync.Pool{pool}),
+	}
+}
+
+func (f *lockFactory) Make(key string) Lock {
+	return NewLock(f.s.NewMutex(key))
 }

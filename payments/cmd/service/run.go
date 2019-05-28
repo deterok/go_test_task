@@ -4,16 +4,18 @@ import (
 	"flag"
 	"fmt"
 	"net"
-	nethttp "net/http"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/gomodule/redigo/redis"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/postgres"
 
 	"github.com/deterok/go_test_task/payments/pkg/endpoint"
-	http "github.com/deterok/go_test_task/payments/pkg/http"
+	payhttp "github.com/deterok/go_test_task/payments/pkg/http"
 	service "github.com/deterok/go_test_task/payments/pkg/service"
 	kitendpoint "github.com/go-kit/kit/endpoint"
 	log "github.com/go-kit/kit/log"
@@ -26,12 +28,12 @@ var logger log.Logger
 
 // Some flags
 var (
-	fs       = flag.NewFlagSet("payments", flag.ExitOnError)
-	httpAddr = fs.String("http-addr", ":8081", "HTTP listen address")
+	fs        = flag.NewFlagSet("payments", flag.ExitOnError)
+	httpAddr  = fs.String("http-addr", ":8081", "HTTP listen address")
 	redisAddr = fs.String("redis-addr", "redis:6379", "Redis address")
 	// Database
 	dbDialect = fs.String("dialect", "postgres", "Database dialect")
-	dbDSN = fs.String("db-dsn", "host=postgres sslmode=disable user=postgres", "Database DSN")
+	dbDSN     = fs.String("db-dsn", "host=postgres sslmode=disable user=postgres", "Database DSN")
 )
 
 func Run() {
@@ -44,6 +46,7 @@ func Run() {
 
 	tracer = opentracinggo.GlobalTracer()
 
+	// Init database
 	db, err := gorm.Open(*dbDialect, *dbDSN)
 	if err != nil {
 		panic(err)
@@ -53,27 +56,37 @@ func Run() {
 		panic(err)
 	}
 
-	lock := service.NewLockReposytory(*redisAddr)
+	// Init redis
+	redis := &redis.Pool{
+		MaxIdle:     1,
+		IdleTimeout: 5 * time.Second,
+		Dial:        func() (redis.Conn, error) { return redis.Dial("tcp", "redis:6379") },
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			_, err := c.Do("PING")
+			return err
+		},
+	}
+
+	lockFactory := service.NewLockFactory(redis)
 	uowFacotry := service.NewUOWPaymentsFactory(db)
-	svc := service.New(lock, uowFacotry, getServiceMiddleware(logger))
+	svc := service.New(lockFactory, uowFacotry, getServiceMiddleware(logger))
 	eps := endpoint.New(svc, getEndpointMiddleware(logger))
 	g := createService(eps)
 	initCancelInterrupt(g)
 	logger.Log("exit", g.Run())
 }
 
-
 func initHttpHandler(endpoints endpoint.Endpoints, g *group.Group) {
 	options := defaultHttpOptions(logger, tracer)
 
-	httpHandler := http.NewHTTPHandler(endpoints, options)
+	httpHandler := payhttp.NewHTTPHandler(endpoints, options)
 	httpListener, err := net.Listen("tcp", *httpAddr)
 	if err != nil {
 		logger.Log("transport", "HTTP", "during", "Listen", "err", err)
 	}
 	g.Add(func() error {
 		logger.Log("transport", "HTTP", "addr", *httpAddr)
-		return nethttp.Serve(httpListener, httpHandler)
+		return http.Serve(httpListener, httpHandler)
 	}, func(error) {
 		httpListener.Close()
 	})
@@ -87,7 +100,6 @@ func getEndpointMiddleware(logger log.Logger) (mw map[string][]kitendpoint.Middl
 	mw = map[string][]kitendpoint.Middleware{}
 	return
 }
-
 
 func initCancelInterrupt(g *group.Group) {
 	cancelInterrupt := make(chan struct{})
