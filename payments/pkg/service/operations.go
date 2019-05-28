@@ -28,6 +28,7 @@ func (t OperationType) String() string {
 
 var ErrOperationNotFound = errors.Errorf("operation not found")
 
+// Operation is a transactions grouping object
 type Operation struct {
 	gorm.Model
 	Participants pq.Int64Array `gorm:"type:integer[]"`
@@ -35,6 +36,7 @@ type Operation struct {
 	Transactions []Transaction
 }
 
+// Transaction is an atomic unit account changes
 type Transaction struct {
 	gorm.Model
 	OperationID uint

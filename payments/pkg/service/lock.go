@@ -6,12 +6,14 @@ import (
 	redsync "gopkg.in/redsync.v1"
 )
 
-// Lock provides interface for simple distributed mechanism for restricting access to the same object
+// Lock provides interface for simple distributed mechanism for
+// restricting access to the same object
 type Lock interface {
 	Lock() error
 	Unlock() error
 }
 
+// LockFactory provides interface for generating Locks
 type LockFactory interface {
 	Make(key string) Lock
 }
@@ -48,6 +50,8 @@ type lockPool struct {
 	locks []Lock
 }
 
+// NewLockPool creates a new Lock like object which allows you to work with
+// an array of Lock-objects as a single
 func NewLockPool(locks []Lock) Lock {
 	return &lockPool{locks}
 }
@@ -78,6 +82,7 @@ type lockFactory struct {
 	s *redsync.Redsync
 }
 
+// NewLockFactory returns a factory that generates lock-objects by given key
 func NewLockFactory(pool *redis.Pool) LockFactory {
 	return &lockFactory{
 		s: redsync.New([]redsync.Pool{pool}),

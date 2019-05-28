@@ -13,6 +13,7 @@ var ErrAccountNotFound = errors.Errorf("account not found")
 
 const WorldAccountID = -1
 
+// Account is a virtual user wallet that can store only one currency
 type Account struct {
 	ID       int64           `gorm:"primary_key" json:"id"`
 	Name     string          `json:"name"`
@@ -24,6 +25,7 @@ type Account struct {
 	DeletedAt *time.Time `sql:"index" json:"deleted_at,omitempty"`
 }
 
+// AccountsRepository describes interaction with a repository that can saves and stores Accounts.
 type AccountsRepository interface {
 	Create(ctx context.Context, a *Account) (*Account, error)
 	Update(ctx context.Context, a *Account) (*Account, error)
