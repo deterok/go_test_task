@@ -11,4 +11,4 @@ RUN dep ensure
 RUN go get  github.com/canthefason/go-watcher
 RUN go install github.com/canthefason/go-watcher/cmd/watcher
 
-CMD  watcher -run github.com/deterok/go_test_task/payments/cmd  -watch github.com/deterok/go_test_task/payments
+CMD  ["watcher", "-run", "github.com/deterok/go_test_task/payments/cmd", "-watch", "github.com/deterok/go_test_task/payments"]
