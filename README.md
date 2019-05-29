@@ -109,7 +109,7 @@ Response:
 }
 ```
 
-### Create deposite operation
+### Create deposit operation
 Request:
 ```shell
 curl --request POST \
