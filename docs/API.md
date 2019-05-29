@@ -105,6 +105,7 @@ Simple entity for description operations between accounts.
 | `Transactions` | List of related transactions |
 
 #### Operation type
+
 |Value| Description|
 | 0 | Deposit type. Used to send money to the account from the outside world|
 | 1 | Transfer type. Used to transfer money between accounts|
